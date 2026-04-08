@@ -139,7 +139,7 @@ persona text.
 
 ### Switching personalities
 
-Edit `gadfly.config.json` in the gadfly directory:
+Edit `gadfly.config.json` in the gadfly installation directory:
 
 ```json
 {
@@ -147,9 +147,7 @@ Edit `gadfly.config.json` in the gadfly directory:
 }
 ```
 
-Then restart the critic window (the one running `--dangerously-load-development-channels`).
-The new persona takes effect on the next channel event. (The subject doesn't 
-need restarting — it doesn't use the personality.)
+Then restart the critic (Terminal 2). The new persona takes effect on the next message.
 
 ### Shipped examples
 
