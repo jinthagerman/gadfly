@@ -115,28 +115,6 @@ claude --dangerously-load-development-channels server:gadfly
 
 Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
 
-The dev flag is required throughout the channels research preview because
-custom channels aren't on the Anthropic-curated allowlist.
-
-Whichever window starts first becomes the subject. The second window
-becomes the critic. Run `/mcp` in either to confirm `gadfly` is connected.
-
-From now on, every assistant turn in the subject window fires the Stop hook,
-which POSTs the reply to gadfly; gadfly broadcasts it over SSE; the critic
-window receives a `<channel source="gadfly">` event and reacts in place.
-
-To critique a different repo: start the subject from that repo instead.
-You'll need the Stop hook registered in *that* repo's `.claude/settings.json`
-(see the snippet below) and `gadfly.ts` still running out of this directory.
-
-### How it works
-
-The hook is safe to register in any `settings.json` (global or project-level):
-if no subject is live, or if the session isn't the subject, the hook silently
-no-ops. The PID gating (the hook walks its process tree to find its `claude`
-ancestor and compares against `subject.json`) ensures the critic never feeds
-its own replies back into gadfly.
-
 ## Personalities
 
 The critic's persona is set via the `instructions` field on the MCP server,
