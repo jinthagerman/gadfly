@@ -5,6 +5,14 @@
 # blocks the host session — even if gadfly is down or jq is missing.
 set -u
 
+# Explicit opt-in gate. Without this env var, the hook is a no-op. This
+# prevents the critic session (Instance B) from critiquing its own replies
+# and creating a feedback loop when both sessions share a settings.json or
+# when the critic is launched from a directory that registers this hook.
+if [ "${GADFLY_CRITIQUE_ME:-}" != "1" ]; then
+  exit 0
+fi
+
 PORT="${GADFLY_PORT:-8788}"
 
 payload=$(cat)

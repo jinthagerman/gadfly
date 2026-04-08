@@ -55,30 +55,40 @@ Leave this terminal open — this is where critiques will appear.
 
 ### 2. Wire the Stop hook into the session you want critiqued (Instance A)
 
-This repo ships a project-local `.claude/settings.json` that already
-registers the Stop hook, so any Claude Code session started from inside
-`/path/to/gadfly/` will be critiqued automatically. No setup needed
-to dogfood gadfly while working on it.
-
-To get the same behavior in **other** projects, drop the same block into
-that project's `.claude/settings.json` (or your user-level
-`~/.claude/settings.json` to enable it everywhere):
+Drop this block into `~/.claude/settings.json` (user-level, fires
+everywhere) or into a specific project's `.claude/settings.json`:
 
 ```json
 {
   "hooks": {
     "Stop": [
       {
-        "type": "command",
-        "command": "/path/to/gadfly/hooks/stop-to-gadfly.sh",
-        "timeout": 5
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/gadfly/hooks/stop-to-gadfly.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }
 }
 ```
 
-Every time the session finishes a turn, the Stop hook POSTs the assistant
+Then launch the session you want critiqued with the opt-in env var set:
+
+```bash
+GADFLY_CRITIQUE_ME=1 claude
+```
+
+The hook is a no-op unless `GADFLY_CRITIQUE_ME=1` is in the environment.
+This is deliberate: it stops the critic session (Instance B) from feeding
+its own replies back into gadfly and creating an infinite loop, which would
+otherwise happen any time the critic is launched under the same settings.
+
+Every time Instance A finishes a turn, the Stop hook POSTs the assistant
 message to gadfly, and a critique appears in Instance B's terminal a moment
 later.
 
