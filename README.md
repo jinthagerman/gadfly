@@ -5,22 +5,47 @@ forwards every assistant turn from one Claude Code session into a *second*
 Claude Code session, where it gets read by a configurable persona — by default
 a devil's advocate — that pushes back on it.
 
-No API keys, no separate model: the critic is just another Claude Code
-instance, primed by the channel's `instructions` block.
+No API keys, no separate model, no special launch incantations: the critic is
+just another Claude Code instance, and role assignment is decided by the order
+the two sessions start up.
 
 ```
- ┌──────────────────────────┐                       ┌──────────────────────────┐
- │ Claude Code Instance A   │                       │ Claude Code Instance B   │
- │ (the one being critiqued)│                       │ (devil's advocate)       │
- │                          │   POST localhost:8788 │                          │
- │ Stop hook fires after ───┼───────────────────▶   │ gadfly MCP server        │
- │ every assistant turn     │   last_assistant_msg  │   │                      │
- │                          │                       │   ▼                      │
- │                          │                       │ <channel> tag lands in   │
- │                          │                       │ B's context, B reacts    │
- │                          │                       │ in its own terminal      │
- └──────────────────────────┘                       └──────────────────────────┘
+ ┌──────────────────────────┐                        ┌──────────────────────────┐
+ │ Claude Code "subject"    │                        │ Claude Code "critic"     │
+ │ (first to start)         │                        │ (started later)          │
+ │                          │                        │                          │
+ │ Stop hook ─POST /publish─┼──▶ gadfly (subject) ──▶│──▶ gadfly (critic) ──▶   │
+ │                          │    subject.json        │    <channel> tag into    │
+ │                          │    ephemeral port      │    critic's context      │
+ │                          │    SSE /events ────────┘                          │
+ └──────────────────────────┘                        └──────────────────────────┘
 ```
+
+## How role assignment works
+
+Both sessions launch Claude Code identically (just `claude` from this
+directory). Each one's `gadfly.ts` subprocess races for a PID-file lock at
+`~/.cache/gadfly/subject.lock`:
+
+- **Winner = subject.** Starts a localhost HTTP server on an ephemeral port,
+  writes `{claude_pid, gadfly_pid, port}` to `~/.cache/gadfly/subject.json`,
+  and broadcasts POSTed messages to all SSE subscribers. It does *not* push
+  events into its own MCP session.
+- **Loser = critic.** Reads `subject.json`, opens a long-lived SSE connection
+  to the subject's `/events`, and forwards each message into its own MCP
+  session as a `notifications/claude/channel` event. Exits when the SSE
+  stream closes.
+
+The Stop hook walks its own process tree to find its `claude` ancestor and
+only POSTs if that PID matches `subject.json`'s `claude_pid`. Critic sessions
+have the same hook installed but their claude PID won't match, so the hook
+no-ops and the self-critique loop is broken at the source. No env vars, no
+opt-in flags, no separate `.mcp.json` files.
+
+If the subject session exits, the critic's SSE connection closes and its
+gadfly subprocess exits cleanly — you'll see it disappear from `/mcp`.
+Restart whichever session you want to be the new subject; whichever gadfly
+wins the next lock race takes over.
 
 ## Requirements
 
@@ -40,7 +65,7 @@ bun install
 
 ## Use
 
-### 1. Start the critic (Instance B)
+Open two Claude Code windows, both in this directory:
 
 ```bash
 cd /path/to/gadfly
@@ -50,13 +75,26 @@ claude --dangerously-load-development-channels server:gadfly
 The dev flag is required throughout the channels research preview because
 custom channels aren't on the Anthropic-curated allowlist.
 
-In that Claude session, run `/mcp` to confirm `gadfly` shows as connected.
-Leave this terminal open — this is where critiques will appear.
+Whichever window starts first becomes the subject. The second window
+becomes the critic. Run `/mcp` in either to confirm `gadfly` is connected.
 
-### 2. Wire the Stop hook into the session you want critiqued (Instance A)
+From now on, every assistant turn in the subject window fires the Stop hook,
+which POSTs the reply to gadfly; gadfly broadcasts it over SSE; the critic
+window receives a `<channel source="gadfly">` event and reacts in place.
 
-Drop this block into `~/.claude/settings.json` (user-level, fires
-everywhere) or into a specific project's `.claude/settings.json`:
+To critique a different repo: start the subject from that repo instead.
+You'll need the Stop hook registered in *that* repo's `.claude/settings.json`
+(see the snippet below) and `gadfly.ts` still running out of this directory.
+
+### Stop hook registration
+
+This repo's `.claude/settings.json` already registers the hook, so any
+Claude Code session started from `/path/to/gadfly/` gets it for
+free — including the critic, where it correctly no-ops thanks to PID gating.
+
+To enable the hook in **other** repos, add this to that project's
+`.claude/settings.json` (or to `~/.claude/settings.json` to enable it
+everywhere):
 
 ```json
 {
@@ -77,29 +115,14 @@ everywhere) or into a specific project's `.claude/settings.json`:
 }
 ```
 
-Then launch the session you want critiqued with the opt-in env var set:
-
-```bash
-GADFLY_CRITIQUE_ME=1 claude
-```
-
-The hook is a no-op unless `GADFLY_CRITIQUE_ME=1` is in the environment.
-This is deliberate: it stops the critic session (Instance B) from feeding
-its own replies back into gadfly and creating an infinite loop, which would
-otherwise happen any time the critic is launched under the same settings.
-
-Every time Instance A finishes a turn, the Stop hook POSTs the assistant
-message to gadfly, and a critique appears in Instance B's terminal a moment
-later.
-
-If gadfly isn't running, the hook fails silently — it won't block your
-session.
+The hook is safe to register anywhere: if no subject is live, or if the
+session isn't the subject, the hook silently no-ops.
 
 ## Personalities
 
 The critic's persona is set via the `instructions` field on the MCP server,
-which Claude Code adds to the system prompt of Instance B. You can swap it
-without touching code.
+which Claude Code adds to the system prompt of the critic session. You can
+swap it without touching code.
 
 Loader priority (first one wins):
 
@@ -108,7 +131,7 @@ Loader priority (first one wins):
 3. `personality` field in `gadfly.config.json` (inline string)
 4. Built-in default
 
-A fixed preamble explaining the channel mechanics is *always* prepended, so
+A fixed preamble explaining the channel mechanics is always prepended, so
 you can write a personality file that's purely about tone and focus —
 nothing about `<channel>` tags or "don't call tools" needs to be in your
 persona text.
@@ -123,8 +146,9 @@ Edit `gadfly.config.json`:
 }
 ```
 
-Then restart Instance B (the critic). The new persona takes effect on the
-next channel event.
+Then restart the critic window. The new persona takes effect on the next
+channel event. (The subject doesn't need restarting — it doesn't use the
+personality.)
 
 ### Shipped examples
 
@@ -137,44 +161,54 @@ next channel event.
 ### Writing your own
 
 Drop a `.md` (or `.txt`) file into `personalities/`, point `personalityFile`
-at it, restart Instance B. The file is treated as raw text — no frontmatter,
+at it, restart the critic. The file is treated as raw text — no frontmatter,
 no templating. Keep it focused on tone, format, and what to look for; the
 preamble already handles the plumbing.
 
+## Runtime state
+
+gadfly writes a couple of files to `~/.cache/gadfly/`:
+
+| File            | Purpose                                                      |
+| --------------- | ------------------------------------------------------------ |
+| `subject.lock`  | PID file — existence + liveness decides subject-vs-critic    |
+| `subject.json`  | `{claude_pid, gadfly_pid, port}` for the current subject     |
+
+Both are cleaned up on clean exit (SIGTERM / SIGINT / normal shutdown). If
+gadfly gets `kill -9`'d the files are left behind; the next startup detects
+the stale PID via `kill(pid, 0)` and takes over automatically.
+
 ## Troubleshooting
 
-**`/mcp` shows gadfly as "failed to connect"** — there's an import or
-runtime error in `gadfly.ts`. Check `~/.claude/debug/<session-id>.txt` for
-the stderr trace.
+**`/mcp` shows gadfly as "failed to connect"** — check
+`~/.claude/debug/<session-id>.txt` for the stderr trace. The most common
+cause is that a stale `subject.lock` from a previous `kill -9` is pointing
+at a PID that was recycled by the OS to another process, so the liveness
+check succeeds but the port in `subject.json` goes nowhere. Nuke
+`~/.cache/gadfly/` and restart both sessions.
 
-**Critique never appears in Instance B** — confirm Instance B is running
-and `/mcp` shows gadfly connected. Then test gadfly in isolation by piping
-a fake Stop payload through the hook script:
+**Both windows think they're the critic** — means neither acquired the lock
+cleanly. Usually caused by a leftover gadfly process you didn't kill. Check
+`pgrep -fl "bun.*gadfly"` and kill stragglers.
 
-```bash
-printf '{"last_assistant_message":"We should rewrite auth in Rust.","session_id":"test"}' \
-  | /path/to/gadfly/hooks/stop-to-gadfly.sh
-```
+**Subject window is sending but critic doesn't react** — confirm the critic
+still has gadfly attached (`/mcp` in the critic), then `cat
+~/.cache/gadfly/subject.json` and `curl -N http://127.0.0.1:<port>/events`
+in a spare terminal to watch the SSE stream directly. If curl sees events
+but the critic doesn't react, the critic's gadfly subprocess has likely
+died — restart the critic window.
 
-If that doesn't trigger Instance B, gadfly isn't bound — check
-`lsof -i :8788`.
-
-**`curl: connection refused` from the hook** — gadfly / Instance B isn't
-running. The hook is designed to swallow this; your host session is fine.
-
-**Stop hook never fires** — check the path in your `settings.json`, and
-make sure the script is executable (`chmod +x hooks/stop-to-gadfly.sh`).
-
-**Port 8788 already in use** — set `GADFLY_PORT=9999` in the environment
-where you launch Instance B (and the same value for the hook script in
-Instance A's settings if you use a non-default port).
+**Stop hook never fires** — check the `matcher` + `hooks` wrapper shape in
+your `settings.json` (Claude Code will reject the whole file silently if
+the shape is wrong) and make sure the script is executable
+(`chmod +x hooks/stop-to-gadfly.sh`).
 
 ## Security notes
 
 - gadfly binds to `127.0.0.1` only. It is not reachable from off-host.
-- It is **one-way and unauthenticated**. Anything that can write to
-  `localhost:8788` on your machine can put text in front of Instance B.
-  Don't run it on a shared machine without adding sender gating (see the
+- It is **unauthenticated**. Anything local that can write to the subject's
+  ephemeral port can put text in front of the critic. Don't run gadfly on a
+  shared machine without adding sender gating (see the
   [channels reference](https://code.claude.com/docs/en/channels-reference#gate-inbound-messages)).
-- Critiques stay in Instance B's terminal. Nothing is sent back to
-  Instance A. (Two-way relay is a possible future extension.)
+- Critiques stay in the critic's terminal. Nothing is sent back to the
+  subject. (Two-way relay is a possible future extension.)
