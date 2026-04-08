@@ -100,7 +100,7 @@ Then add the Stop hook to your user-level `~/.claude/settings.json`:
 }
 ```
 
-Now, open two Claude Code windows (works in any project):
+Now, open exactly two Claude Code windows on the same computer:
 
 **Terminal 1 — the subject (work in any project):**
 ```bash
@@ -116,6 +116,8 @@ claude --dangerously-load-development-channels server:gadfly
 (The `--dangerously-load-development-channels` flag is required because custom channels aren't on the Anthropic allowlist during the research preview.)
 
 Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
+
+**Important:** gadfly uses a single lock file and ephemeral port on each machine, so you can only run one subject/critic pair at a time. If you need to switch which project is being critiqued, kill the subject window and start a new one in the desired project.
 
 ## Personalities
 
