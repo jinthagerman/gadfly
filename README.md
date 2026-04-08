@@ -63,43 +63,23 @@ wins the next lock race takes over.
 
 ## Install
 
+Clone or download gadfly to a directory on your machine. Then install dependencies:
+
 ```bash
-cd /path/to/gadfly
 bun install
 ```
 
 ## Use
 
-Open two Claude Code windows, both in this directory:
+### Quick start
+
+Register the Stop hook globally using `claude mcp add`:
 
 ```bash
-cd /path/to/gadfly
-claude --dangerously-load-development-channels server:gadfly
+claude mcp add gadfly -- bun /path/to/gadfly/gadfly.ts
 ```
 
-The dev flag is required throughout the channels research preview because
-custom channels aren't on the Anthropic-curated allowlist.
-
-Whichever window starts first becomes the subject. The second window
-becomes the critic. Run `/mcp` in either to confirm `gadfly` is connected.
-
-From now on, every assistant turn in the subject window fires the Stop hook,
-which POSTs the reply to gadfly; gadfly broadcasts it over SSE; the critic
-window receives a `<channel source="gadfly">` event and reacts in place.
-
-To critique a different repo: start the subject from that repo instead.
-You'll need the Stop hook registered in *that* repo's `.claude/settings.json`
-(see the snippet below) and `gadfly.ts` still running out of this directory.
-
-### Stop hook registration
-
-This repo's `.claude/settings.json` already registers the hook, so any
-Claude Code session started from `/path/to/gadfly/` gets it for
-free — including the critic, where it correctly no-ops thanks to PID gating.
-
-To enable the hook in **other** repos, add this to that project's
-`.claude/settings.json` (or to `~/.claude/settings.json` to enable it
-everywhere):
+Then add the Stop hook to your user-level `~/.claude/settings.json`:
 
 ```json
 {
@@ -120,8 +100,46 @@ everywhere):
 }
 ```
 
-The hook is safe to register anywhere: if no subject is live, or if the
-session isn't the subject, the hook silently no-ops.
+Now, open two Claude Code windows from anywhere:
+
+**Terminal 1 — the critic:**
+```bash
+claude --dangerously-load-development-channels server:gadfly
+```
+
+**Terminal 2 — the subject (work in any project):**
+```bash
+cd ~/my-project
+claude
+```
+
+Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
+
+### Project-specific setup
+
+To enable gadfly for only one project, add the Stop hook to that project's `.claude/settings.json` instead of the user-level one. The `claude mcp` registration is global, so the critic command remains the same.
+
+The dev flag is required throughout the channels research preview because
+custom channels aren't on the Anthropic-curated allowlist.
+
+Whichever window starts first becomes the subject. The second window
+becomes the critic. Run `/mcp` in either to confirm `gadfly` is connected.
+
+From now on, every assistant turn in the subject window fires the Stop hook,
+which POSTs the reply to gadfly; gadfly broadcasts it over SSE; the critic
+window receives a `<channel source="gadfly">` event and reacts in place.
+
+To critique a different repo: start the subject from that repo instead.
+You'll need the Stop hook registered in *that* repo's `.claude/settings.json`
+(see the snippet below) and `gadfly.ts` still running out of this directory.
+
+### How it works
+
+The hook is safe to register in any `settings.json` (global or project-level):
+if no subject is live, or if the session isn't the subject, the hook silently
+no-ops. The PID gating (the hook walks its process tree to find its `claude`
+ancestor and compares against `subject.json`) ensures the critic never feeds
+its own replies back into gadfly.
 
 ## Personalities
 
@@ -143,7 +161,7 @@ persona text.
 
 ### Switching personalities
 
-Edit `gadfly.config.json`:
+Edit `gadfly.config.json` in the gadfly directory:
 
 ```json
 {
@@ -151,9 +169,9 @@ Edit `gadfly.config.json`:
 }
 ```
 
-Then restart the critic window. The new persona takes effect on the next
-channel event. (The subject doesn't need restarting — it doesn't use the
-personality.)
+Then restart the critic window (the one running `--dangerously-load-development-channels`).
+The new persona takes effect on the next channel event. (The subject doesn't 
+need restarting — it doesn't use the personality.)
 
 ### Shipped examples
 
