@@ -55,8 +55,14 @@ Leave this terminal open — this is where critiques will appear.
 
 ### 2. Wire the Stop hook into the session you want critiqued (Instance A)
 
-Add this to `~/.claude/settings.json` (or a project-level
-`.claude/settings.json`):
+This repo ships a project-local `.claude/settings.json` that already
+registers the Stop hook, so any Claude Code session started from inside
+`/path/to/gadfly/` will be critiqued automatically. No setup needed
+to dogfood gadfly while working on it.
+
+To get the same behavior in **other** projects, drop the same block into
+that project's `.claude/settings.json` (or your user-level
+`~/.claude/settings.json` to enable it everywhere):
 
 ```json
 {
@@ -72,9 +78,9 @@ Add this to `~/.claude/settings.json` (or a project-level
 }
 ```
 
-Now start a normal Claude Code session in any project. Every time it
-finishes a turn, the Stop hook POSTs the assistant message to gadfly, and a
-critique appears in Instance B's terminal a moment later.
+Every time the session finishes a turn, the Stop hook POSTs the assistant
+message to gadfly, and a critique appears in Instance B's terminal a moment
+later.
 
 If gadfly isn't running, the hook fails silently — it won't block your
 session.

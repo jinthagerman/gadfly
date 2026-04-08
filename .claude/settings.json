@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "${CLAUDE_PROJECT_DIR}/hooks/stop-to-gadfly.sh",
+        "timeout": 5
+      }
+    ]
+  }
+}
