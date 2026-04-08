@@ -115,10 +115,6 @@ claude --dangerously-load-development-channels server:gadfly
 
 Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
 
-### Project-specific setup
-
-To enable gadfly for only one project, add the Stop hook to that project's `.claude/settings.json` instead of the user-level one. The `claude mcp` registration is global, so the critic command remains the same.
-
 The dev flag is required throughout the channels research preview because
 custom channels aren't on the Anthropic-curated allowlist.
 
