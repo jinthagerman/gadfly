@@ -1,7 +1,12 @@
 # gadfly
 
-A [Claude Code channel](https://code.claude.com/docs/en/channels-reference) that
-forwards every assistant turn from one Claude Code session into a *second*
+**Combat sycophancy.** An LLM in a code editor can become an echo chamber — the
+model agrees with your half-baked ideas, reinforces your assumptions, and never
+pushes back. Gadfly fixes this by spawning a devil's advocate into a second Claude
+Code session that reads every response you get and argues against it in good faith.
+
+Structurally: a [Claude Code channel](https://code.claude.com/docs/en/channels-reference)
+that forwards every assistant turn from one Claude Code session into a *second*
 Claude Code session, where it gets read by a configurable persona — by default
 a devil's advocate — that pushes back on it.
 

@@ -278,19 +278,15 @@ if (role === 'subject') {
 
 // --- Critic side ------------------------------------------------------------
 // Open SSE connection to the subject and forward each event into MCP.
-// Exit when the stream closes (subject died).
+// On stream close, check if subject still exists; if so, retry with exponential backoff.
+// Exit only if subject truly died or we hit max consecutive failures.
 
 if (role === 'critic') {
-  const subject = readSubjectJson()
-  if (!subject) {
-    console.error('[gadfly] critic: no live subject found in subject.json; exiting')
-    process.exit(0)
-  }
-
-  const url = `http://127.0.0.1:${subject.port}/events`
-  console.error(`[gadfly] critic: connecting to ${url}`)
-
   let cancelled = false
+  let consecutiveFailures = 0
+  const MAX_FAILURES = 10
+  let backoffMs = 500
+
   process.on('SIGTERM', () => {
     cancelled = true
   })
@@ -298,54 +294,84 @@ if (role === 'critic') {
     cancelled = true
   })
 
-  try {
-    const res = await fetch(url, { headers: { Accept: 'text/event-stream' } })
-    if (!res.ok || !res.body) {
-      console.error(`[gadfly] critic: bad response ${res.status}; exiting`)
+  while (!cancelled) {
+    const subject = readSubjectJson()
+    if (!subject) {
+      console.error('[gadfly] critic: no live subject found; exiting')
       process.exit(0)
     }
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
+    const url = `http://127.0.0.1:${subject.port}/events`
+    console.error(`[gadfly] critic: connecting to ${url}`)
 
-    while (!cancelled) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
+    try {
+      const res = await fetch(url, { headers: { Accept: 'text/event-stream' } })
+      if (!res.ok || !res.body) {
+        console.error(`[gadfly] critic: bad response ${res.status}`)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_FAILURES) {
+          console.error(`[gadfly] critic: too many failures; exiting`)
+          process.exit(0)
+        }
+        await new Promise(r => setTimeout(r, backoffMs))
+        backoffMs = Math.min(backoffMs * 2, 5000) // cap at 5s
+        continue
+      }
 
-      // Split into SSE events on blank lines.
-      let sep
-      while ((sep = buf.indexOf('\n\n')) !== -1) {
-        const event = buf.slice(0, sep)
-        buf = buf.slice(sep + 2)
-        // We only care about `data: <json>` lines (skip the `: connected` comment).
-        const dataLines = event
-          .split('\n')
-          .filter(l => l.startsWith('data: '))
-          .map(l => l.slice(6))
-        if (dataLines.length === 0) continue
-        try {
-          const payload = JSON.parse(dataLines.join('\n')) as {
-            content: string
-            sourceSession: string
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      consecutiveFailures = 0 // reset on successful connect
+      backoffMs = 500
+
+      while (!cancelled) {
+        const { value, done } = await reader.read()
+        if (done) {
+          console.error('[gadfly] critic: subject stream closed')
+          break // reconnect loop will retry
+        }
+        buf += decoder.decode(value, { stream: true })
+
+        // Split into SSE events on blank lines.
+        let sep
+        while ((sep = buf.indexOf('\n\n')) !== -1) {
+          const event = buf.slice(0, sep)
+          buf = buf.slice(sep + 2)
+          // We only care about `data: <json>` lines (skip the `: connected` comment).
+          const dataLines = event
+            .split('\n')
+            .filter(l => l.startsWith('data: '))
+            .map(l => l.slice(6))
+          if (dataLines.length === 0) continue
+          try {
+            const payload = JSON.parse(dataLines.join('\n')) as {
+              content: string
+              sourceSession: string
+            }
+            await mcp.notification({
+              method: 'notifications/claude/channel',
+              params: {
+                content: payload.content,
+                meta: payload.sourceSession ? { source_session: payload.sourceSession } : {},
+              },
+            })
+          } catch (err) {
+            console.error(`[gadfly] critic: bad SSE payload: ${(err as Error).message}`)
           }
-          await mcp.notification({
-            method: 'notifications/claude/channel',
-            params: {
-              content: payload.content,
-              meta: payload.sourceSession ? { source_session: payload.sourceSession } : {},
-            },
-          })
-        } catch (err) {
-          console.error(`[gadfly] critic: bad SSE payload: ${(err as Error).message}`)
         }
       }
+    } catch (err) {
+      console.error(`[gadfly] critic: connection error: ${(err as Error).message}`)
+      consecutiveFailures++
+      if (consecutiveFailures >= MAX_FAILURES) {
+        console.error(`[gadfly] critic: too many failures; exiting`)
+        process.exit(0)
+      }
+      await new Promise(r => setTimeout(r, backoffMs))
+      backoffMs = Math.min(backoffMs * 2, 5000)
     }
-  } catch (err) {
-    console.error(`[gadfly] critic: SSE connection failed: ${(err as Error).message}`)
   }
 
-  console.error('[gadfly] critic: subject stream closed; exiting')
+  console.error('[gadfly] critic: cancelled; exiting')
   process.exit(0)
 }
