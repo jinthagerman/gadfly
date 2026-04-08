@@ -100,17 +100,17 @@ Then add the Stop hook to your user-level `~/.claude/settings.json`:
 }
 ```
 
-Now, open two Claude Code windows from anywhere:
+Now, open two Claude Code windows (works in any project):
 
-**Terminal 1 — the critic:**
-```bash
-claude --dangerously-load-development-channels server:gadfly
-```
-
-**Terminal 2 — the subject (work in any project):**
+**Terminal 1 — the subject (work in any project):**
 ```bash
 cd ~/my-project
 claude
+```
+
+**Terminal 2 — the critic:**
+```bash
+claude --dangerously-load-development-channels server:gadfly
 ```
 
 Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
