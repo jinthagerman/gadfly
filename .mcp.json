@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gadfly": {
+      "command": "bun",
+      "args": ["/Users/jin/Code/gadfly/gadfly.ts"]
+    }
+  }
+}
