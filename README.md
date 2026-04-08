@@ -113,6 +113,8 @@ claude
 claude --dangerously-load-development-channels server:gadfly
 ```
 
+(The `--dangerously-load-development-channels` flag is required because custom channels aren't on the Anthropic allowlist during the research preview.)
+
 Whichever starts first becomes the subject (being critiqued). The second becomes the critic (pushing back).
 
 ## Personalities
